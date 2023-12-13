@@ -21,6 +21,14 @@ module.exports = (baseURL) => ({
     callback: `${baseURL}/facebook/callback`,
     scope: ['email'],
   },
+  apple: {
+    enabled: false,
+    icon: 'apple',
+    key: '',
+    secret: '',
+    callback: `${baseURL}/apple/callback`,
+    scope: ['email'],
+  },
   google: {
     enabled: false,
     icon: 'google',

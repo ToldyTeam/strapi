@@ -10,12 +10,11 @@
 const crypto = require('crypto');
 const _ = require('lodash');
 const urljoin = require('url-join');
-const { isArray } = require('lodash/fp');
-const { getService } = require('../utils');
 const getGrantConfig = require('./grant-config');
+const { getService } = require('@strapi/plugin-users-permissions/server/utils');
+const usersPermissionsActions = require('@strapi/plugin-users-permissions/server/bootstrap/users-permissions-actions');
 
-const usersPermissionsActions = require('./users-permissions-actions');
-const userSchema = require('../content-types/user');
+
 
 const initGrant = async (pluginStore) => {
   const apiPrefix = strapi.config.get('api.rest.prefix');
@@ -99,27 +98,6 @@ const initAdvancedOptions = async (pluginStore) => {
   }
 };
 
-const userSchemaAdditions = () => {
-  const defaultSchema = Object.keys(userSchema.attributes);
-  const currentSchema = Object.keys(
-    strapi.contentTypes['plugin::users-permissions.user'].attributes
-  );
-
-  // Some dynamic fields may not have been initialized yet, so we need to ignore them
-  // TODO: we should have a global method for finding these
-  const ignoreDiffs = [
-    'createdBy',
-    'createdAt',
-    'updatedBy',
-    'updatedAt',
-    'publishedAt',
-    'strapi_stage',
-    'strapi_assignee',
-  ];
-
-  return currentSchema.filter((key) => !(ignoreDiffs.includes(key) || defaultSchema.includes(key)));
-};
-
 module.exports = async ({ strapi }) => {
   const pluginStore = strapi.store({ type: 'plugin', name: 'users-permissions' });
 
@@ -133,11 +111,14 @@ module.exports = async ({ strapi }) => {
 
   await getService('users-permissions').initialize();
 
-  if (!strapi.config.get('plugin.users-permissions.jwtSecret')) {
+  const jwtSecret = process.env.JWT_SECRET;
+
+  if (!jwtSecret) {
+
     if (process.env.NODE_ENV !== 'development') {
       throw new Error(
         `Missing jwtSecret. Please, set configuration variable "jwtSecret" for the users-permissions plugin in config/plugins.js (ex: you can generate one using Node with \`crypto.randomBytes(16).toString('base64')\`).
-For security reasons, prefer storing the secret in an environment variable and read it in config/plugins.js. See https://docs.strapi.io/developer-docs/latest/setup-deployment-guides/configurations/optional/environment.html#configuration-using-environment-variables.`
+          For security reasons, prefer storing the secret in an environment variable and read it in config/plugins.js. See https://docs.strapi.io/developer-docs/latest/setup-deployment-guides/configurations/optional/environment.html#configuration-using-environment-variables.`
       );
     }
 
@@ -150,19 +131,6 @@ For security reasons, prefer storing the secret in an environment variable and r
       strapi.fs.appendFile(envPath, `JWT_SECRET=${jwtSecret}\n`);
       strapi.log.info(
         `The Users & Permissions plugin automatically generated a jwt secret and stored it in ${envPath} under the name JWT_SECRET.`
-      );
-    }
-  }
-
-  // TODO v5: Remove this block of code and default allowedFields to empty array
-  if (!isArray(strapi.config.get('plugin.users-permissions.register.allowedFields'))) {
-    const modifications = userSchemaAdditions();
-    if (modifications.length > 0) {
-      // if there is a potential vulnerability, show a warning
-      strapi.log.warn(
-        `Users-permissions registration has defaulted to accepting the following additional user fields during registration: ${modifications.join(
-          ','
-        )}`
       );
     }
   }

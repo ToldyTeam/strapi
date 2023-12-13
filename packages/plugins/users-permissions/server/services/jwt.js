@@ -32,7 +32,7 @@ module.exports = ({ strapi }) => ({
     _.defaults(jwtOptions, strapi.config.get('plugin.users-permissions.jwt'));
     return jwt.sign(
       _.clone(payload.toJSON ? payload.toJSON() : payload),
-      strapi.config.get('plugin.users-permissions.jwtSecret'),
+       process.env.JWT_SECRET,
       jwtOptions
     );
   },
@@ -41,7 +41,7 @@ module.exports = ({ strapi }) => ({
     return new Promise((resolve, reject) => {
       jwt.verify(
         token,
-        strapi.config.get('plugin.users-permissions.jwtSecret'),
+        process.env.JWT_SECRET,
         {},
         (err, tokenPayload = {}) => {
           if (err) {

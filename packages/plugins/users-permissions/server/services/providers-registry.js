@@ -3,6 +3,7 @@
 const { strict: assert } = require('assert');
 const jwt = require('jsonwebtoken');
 const jwkToPem = require('jwk-to-pem');
+const {AppleSignIn} = require("apple-sign-in-rest");
 
 const getCognitoPayload = async ({ idToken, jwksUrl, purest }) => {
   const {
@@ -84,9 +85,10 @@ const getInitialProviders = ({ purest }) => ({
         email: body.email,
       }));
   },
-  async google({ accessToken }) {
+  async google({ accessToken, query }) {
     const google = purest({ provider: 'google' });
 
+  
     return google
       .query('oauth')
       .get('tokeninfo')
@@ -95,7 +97,36 @@ const getInitialProviders = ({ purest }) => ({
       .then(({ body }) => ({
         username: body.email.split('@')[0],
         email: body.email,
+        firstname: body.given_name,
+        lastname: body.family_name,
+        provider: "google",
       }));
+  },
+  async apple({ accessToken, query}) {
+
+
+    let clientId = query.native === 'true'? process.env.APPLE_BUNDLE_ID:process.env.APPLE_CLIENT_ID
+
+    const appleSignIn = new AppleSignIn({
+      /**
+       * The clientId depends on that login "flow" you trying to create:
+       *   - "web login" - this is the "serviceId"
+       *   - "ios login" - this is the app "bundleId", choose only this if you trying to
+       *                   verify user that has signed into using the native iOS way
+       *
+       */
+      "clientId": query.native === 'true'? process.env.APPLE_BUNDLE_ID:process.env.APPLE_CLIENT_ID ,
+      "teamId": process.env.APPLE_TEAM_ID,
+      "keyIdentifier": process.env.APPLE_KEY_ID,
+      "privateKey": process.env.APPLE_PRIVATE_KEY
+    })
+    
+    
+
+    
+    ///Implementar Logica
+    const response = await appleSignIn.verifyIdToken(accessToken, {});
+    return  response;
   },
   async github({ accessToken }) {
     const github = purest({

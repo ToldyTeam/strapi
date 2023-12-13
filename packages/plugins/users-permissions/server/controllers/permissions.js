@@ -20,7 +20,7 @@ module.exports = {
 
   async getRoutes(ctx) {
     const routes = await getService('users-permissions').getRoutes();
-
+    //console.log("routes: ",routes);
     ctx.send({ routes });
   },
 };

@@ -31,8 +31,14 @@ const { ApplicationError, ValidationError, ForbiddenError } = utils.errors;
 const sanitizeUser = (user, ctx) => {
   const { auth } = ctx.state;
   const userSchema = strapi.getModel('plugin::users-permissions.user');
+  //console.log('auth',auth);
+   //console.log('user schema:',userSchema);
+  // console.log('sanitized',sanitize.contentAPI.output(user, userSchema, { auth }));
+  //const userSanitized = sanitize.contentAPI.output(user, userSchema, { auth });
 
+  //console.log('user sanitized:',userSanitized);
   return sanitize.contentAPI.output(user, userSchema, { auth });
+
 };
 
 module.exports = {
@@ -60,6 +66,7 @@ module.exports = {
           provider,
           $or: [{ email: identifier.toLowerCase() }, { username: identifier }],
         },
+        populate: ['domain'],
       });
 
       if (!user) {
@@ -92,7 +99,10 @@ module.exports = {
 
       return ctx.send({
         jwt: getService('jwt').issue({ id: user.id }),
-        user: await sanitizeUser(user, ctx),
+        user: {
+           ... await sanitizeUser(user, ctx),
+           domain: user.domain
+          }
       });
     }
 
@@ -106,7 +116,10 @@ module.exports = {
 
       return ctx.send({
         jwt: getService('jwt').issue({ id: user.id }),
-        user: await sanitizeUser(user, ctx),
+        user: {
+           ... await sanitizeUser(user, ctx),
+           domain: user.domain
+          }
       });
     } catch (error) {
       throw new ApplicationError(error.message);
@@ -168,7 +181,10 @@ module.exports = {
     // Update the user.
     ctx.send({
       jwt: getService('jwt').issue({ id: user.id }),
-      user: await sanitizeUser(user, ctx),
+      user: {
+         ... await sanitizeUser(user, ctx),
+         domain: user.domain
+        }
     });
   },
 
@@ -273,8 +289,9 @@ module.exports = {
   },
 
   async register(ctx) {
-    const pluginStore = await strapi.store({ type: 'plugin', name: 'users-permissions' });
 
+
+    const pluginStore = await strapi.store({ type: 'plugin', name: 'users-permissions' });
     const settings = await pluginStore.get({ key: 'advanced' });
 
     if (!settings.allow_register) {
@@ -309,7 +326,6 @@ module.exports = {
                   'resetPasswordToken',
                   'provider',
                   'id',
-                  'role',
                   // other Strapi fields that might be added
                   'createdAt',
                   'updatedAt',
@@ -327,12 +343,21 @@ module.exports = {
       provider: 'local',
     };
 
+    
+
     await validateRegisterBody(params);
 
-    const role = await strapi
+    let role;
+    if(params.role){
+      role = {
+        id:params.role
+      }
+    }else{
+       role = await strapi
       .query('plugin::users-permissions.role')
       .findOne({ where: { type: settings.default_role } });
-
+    }
+    
     if (!role) {
       throw new ApplicationError('Impossible to find the default role');
     }
@@ -366,16 +391,104 @@ module.exports = {
       }
     }
 
+    //Create domain
+
+    let domain;
+    if(params.domain){
+       //Gets al posts from demo domain.
+      const postsIds = await strapi.entityService.findMany('api::post.post', {
+        fields: ['id'],
+        filters: { domain:{ domain: 'demo' }, publishedAt: {$null: false}},
+      });
+  
+      const domainId = await strapi.entityService.findMany('api::domain.domain', {
+        fields: ['id'],
+        filters: { domain: params.domain.domain , publishedAt: {$null: false}},
+      });
+    
+    
+      if(domainId.length > 0){
+        throw new ForbiddenError("Domain already exists");
+      }
+    
+      domain = await strapi.entityService.create('api::domain.domain', {
+        data: {
+          ...params.domain,
+          posts: postsIds,
+          publishedAt: new Date()
+        },
+      });
+  
+    
+      //Gets Default library template
+      let populate = {};
+      populate.newPosts={};
+      populate.newPosts.populate=['posts','posts.id'];
+      populate.recommendedPosts={};
+      populate.recommendedPosts.populate=['posts','posts.id'];
+      populate.audioPosts={};
+      populate.audioPosts.populate=['posts','posts.id'];
+      populate.libraryFlex={};
+      populate.libraryFlex.populate={};
+      populate.libraryFlex.populate.Posts={};
+      populate.libraryFlex.populate.Posts.populate=['posts','posts.id'];
+      populate.libraryFlex.populate.Authors={};
+      populate.libraryFlex.populate.Authors.populate=['authors','authors.id'];
+      populate.categories={};
+      populate.categories.populate=['categories','categories.id'];
+
+      const demoLibrary = await strapi.db.query('api::library.library').findOne(
+        {
+          where: {
+            title: 'demo'
+          },
+          populate: populate,
+          fields: ['id','title']
+        }
+      );
+  
+      const library = await strapi.entityService.create('api::library.library', {
+        data: {
+          title: domain.title,
+          newPosts:{
+            title: 'Lo nuevo',
+            posts: demoLibrary.newPosts.posts
+          },
+          recommendedPosts:{
+            title: 'Recomendados',
+            posts: demoLibrary.recommendedPosts.posts
+          },
+          libraryFlex:{
+            Posts: demoLibrary.libraryFlex.Posts,
+            Authors: demoLibrary.libraryFlex.Authors
+          },
+          categories:{
+            categories: demoLibrary.categories.categories
+          },
+          domain: {
+            id:domain.id
+          }
+        }
+      })
+  
+      if(!library){
+        await strapi.entityService.delete('api::domain.domain', { data:domain.id});
+        throw new  ApplicationError("Domain creation issue. Contact support");
+      }
+    }else{
+        domain = {id: 1};
+    }
+
     const newUser = {
       ...params,
       role: role.id,
       email: email.toLowerCase(),
       username,
+      domain: {id:domain.id},
       confirmed: !settings.email_confirmation,
     };
 
     const user = await getService('user').add(newUser);
-
     const sanitizedUser = await sanitizeUser(user, ctx);
 
     if (settings.email_confirmation) {
@@ -384,16 +497,19 @@ module.exports = {
       } catch (err) {
         throw new ApplicationError(err.message);
       }
-
       return ctx.send({ user: sanitizedUser });
     }
-
+  
     const jwt = getService('jwt').issue(_.pick(user, ['id']));
 
     return ctx.send({
       jwt,
-      user: sanitizedUser,
+      user: {
+        ...sanitizedUser,
+        domain: domain
+      },
     });
+    
   },
 
   async emailConfirmation(ctx, next, returnUser) {
@@ -423,7 +539,6 @@ module.exports = {
       ctx.redirect(settings.email_confirmation_redirection || '/');
     }
   },
-
   async sendEmailConfirmation(ctx) {
     const { email } = await validateSendEmailConfirmationBody(ctx.request.body);
 
@@ -449,5 +564,7 @@ module.exports = {
       email: user.email,
       sent: true,
     });
-  },
+  }
+
 };
+

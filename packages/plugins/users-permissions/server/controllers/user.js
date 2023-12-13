@@ -170,8 +170,9 @@ module.exports = {
 
     if (data) {
       data = await sanitizeOutput(data, ctx);
+      data.domainIdFacu = "HELLOOOOO";
     }
-
+    console.log("findOneUser", data);
     ctx.body = data;
   },
 
