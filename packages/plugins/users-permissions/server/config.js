@@ -4,11 +4,11 @@ module.exports = {
   default: ({ env }) => ({
     jwtSecret: env('JWT_SECRET'),
     jwt: {
-      expiresIn: '30d',
+      expiresIn: '6y',
     },
     ratelimit: {
-      interval: 60000,
-      max: 10,
+      interval: 30000,
+      max: 1000,
     },
     layout: {
       user: {
